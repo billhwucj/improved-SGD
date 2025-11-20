@@ -1,0 +1,9 @@
+./tmp_data
+/room.ply
+git rm --cached room.ply
+*.png
+*.json
+*.ply
+*.txt
+*.tar.gz
+./data/*
