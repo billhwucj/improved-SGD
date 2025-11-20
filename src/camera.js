@@ -228,8 +228,15 @@ class Camera {
             mat4.copy(this.lastViewProjMatrix, this.vpm)
         }
 
-        // Sort the splats as soon as the worker is available
+        // Sort the splats as soon as the worker is available and we have data.
+        // If no gaussians were sent yet, don't request a sort — the worker
+        // would reply with zero-length buffers and produce GL errors.
         if (this.needsWorkerUpdate && !isWorkerSorting) {
+            // Only post a sort request if there's at least one gaussian
+            // available in the main thread.
+            const hasGaussians = (typeof allGaussians !== 'undefined' && allGaussians.gaussians && allGaussians.gaussians.count > 0)
+            if (!hasGaussians) return
+
             this.needsWorkerUpdate = false
             isWorkerSorting = true
             worker.postMessage({
@@ -254,7 +261,8 @@ class Camera {
 
         // Raycast the gaussian splats
         const hit = { id: -1, dist: 1e9 }
-        for (let i = 0; i < gaussianCount; i++) {
+        const maxI = Math.min(gaussianCount || 0, (typeof gpuGaussianCount === 'number' ? gpuGaussianCount : 0))
+        for (let i = 0; i < maxI; i++) {
             const pos = positionData.slice(i * 3, i * 3 + 3)
             const alpha = opacityData[i]
 
@@ -356,54 +364,31 @@ class Camera {
     // This is the fully modified function for camera.js
 
     async startPathReplay() {
-        // 1. ALL IMMEDIATE ACTIONS
-        // This code runs instantly when the button is pressed.
-        // It clears the canvas and resets the global 'allGaussians' object,
-        // which is the "scene immediately starts loading" (or resetting)
-        // behavior you see.
-        gl.clearColor(0, 0, 0, 0);
-        gl.clear(gl.COLOR_BUFFER_BIT);
-        console.log("start replay: clearing scene");
-        allGaussians.gaussians.count = 0;
-        allGaussians.gaussians.colors = [];
-        allGaussians.gaussians.cov3Ds = [];
-        allGaussians.gaussians.opacities = [];
-        allGaussians.gaussians.positions = [];
+        // When replay is triggered, don't clear the canvas or immediately
+        // wipe the JS-side gaussian arrays. Instead, mark a pending reset so
+        // the existing frame stays visible. The first batch received from
+        // the loader will apply the reset and replace the scene atomically.
+        pendingReset = true
+        console.log('start replay: requested scene load (non-destructive)')
 
-        // This renders the new, empty scene
-        requestRender();
-        console.log("clear the previous data and reload the scene");
+        // Start loading the scene in the background (will stream batches).
+        loadScene({ scene: settings.scene })
 
-        // 2. CONCURRENT ACTIONS (STARTING NOW)
-        // We will start both loading and the timer at the same time.
+        // Wait until the loader indicates the scene finished streaming.
+        // `load_finish` is set in `main.js` when all batches are received.
+        const startTime = performance.now()
+        const timeoutMs = 120000 // 2 minutes fallback timeout
+        await new Promise(resolve => {
+            const poll = () => {
+                if (typeof load_finish !== 'undefined' && load_finish) return resolve()
+                if (performance.now() - startTime > timeoutMs) return resolve()
+                setTimeout(poll, 100)
+            }
+            poll()
+        })
 
-        // A. Start loading the scene in the background.
-        // 'loadScene' returns a promise that resolves when loading is complete.
-        const loadPromise = loadScene({ scene: settings.scene });
-        console.log("Scene loading has started in the background.");
-
-        // B. Create a new promise that resolves after 30 seconds.
-        const timerPromise = new Promise(resolve => {
-            console.log("30-second timer has started.");
-            setTimeout(() => {
-                console.log("30-second delay has finished.");
-                resolve(); // The timer is done
-            // }, 30000); // 30,000 milliseconds
-            }, 0); // 30,000 milliseconds
-        });
-
-        // 3. FINAL ACTION (AFTER DELAY AND LOAD)
-        // Use Promise.all to wait for BOTH promises to complete:
-        // 1. The scene must be finished loading.
-        // 2. The 30-second timer must have elapsed.
-        // If loading takes 10s, it will wait for the 30s timer.
-        // If loading takes 45s, it will wait for loading (since the timer finished at 30s).
-        console.log("Waiting for scene to load AND 30-second timer to finish...");
-        await Promise.all([loadPromise, timerPromise]);
-
-        // This line will only run after *both* are finished.
-        console.log("Loading and 30s timer are both complete. Starting replay loop.");
-        this.startPathReplay_helper();
+        console.log('Scene load finished (or timed out). Starting replay helper.')
+        this.startPathReplay_helper()
     }
 
     updatePathReplay() {

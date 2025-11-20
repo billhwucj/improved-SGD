@@ -14,6 +14,8 @@ let gizmoRenderer = new GizmoRenderer()
 let positionBuffer, positionData, opacityData
 
 let load_finish=false
+let pendingReset = false // when true, reset `allGaussians` on first incoming batch
+let gpuGaussianCount = 0 // number of gaussians currently uploaded to GPU buffers
 
 let allGaussians = {
     gaussians: {
@@ -128,6 +130,10 @@ async function main() {
         updateBuffer(buffers.covA, data.cov3Da)
         updateBuffer(buffers.covB, data.cov3Db)
 
+        // Record how many gaussians the GPU buffers currently contain.
+        // Each color/position entry is 3 floats per gaussian.
+        gpuGaussianCount = (data.colors && data.colors.length) ? (data.colors.length / 3) : 0
+
         // Needed for the gizmo renderer
         positionBuffer = buffers.center
         positionData = data.positions
@@ -143,8 +149,19 @@ async function main() {
         // parse the received data for each batch
         const responseData = event.data;
         console.log(responseData); // log the returned data
-        if (!load_finish)
-        {
+        if (!load_finish) {
+            // If a reset was requested (e.g. startPathReplay), reset the
+            // accumulated arrays only when the *first* real batch arrives.
+            if (pendingReset) {
+                allGaussians.gaussians.count = 0;
+                allGaussians.gaussians.colors = [];
+                allGaussians.gaussians.cov3Ds = [];
+                allGaussians.gaussians.opacities = [];
+                allGaussians.gaussians.positions = [];
+                pendingReset = false;
+                console.log('Applied pending reset: cleared previous gaussian buffers')
+            }
+
             // append new data to current data
             allGaussians.gaussians.count += responseData.gaussians.count;
             allGaussians.gaussians.colors = allGaussians.gaussians.colors.concat(responseData.gaussians.colors);
@@ -409,14 +426,33 @@ async function loadScene({scene, file}) {
             console.log("start to wait for worker loading");
 
             const cameraParameters = scene ? defaultCameraParameters[scene] : {}
-            if (cam == null) cam = new Camera(cameraParameters)
+            // Ensure `Camera` class and `gl` are available before instantiating.
+            if (typeof Camera === 'undefined' || typeof gl === 'undefined') {
+                console.warn('Camera or GL not ready yet; waiting briefly before creating Camera')
+                const start = performance.now()
+                const timeout = 5000 // ms
+                await new Promise(resolve => {
+                    const poll = () => {
+                        if (typeof Camera !== 'undefined' && typeof gl !== 'undefined') return resolve()
+                        if (performance.now() - start > timeout) return resolve()
+                        setTimeout(poll, 50)
+                    }
+                    poll()
+                })
+            }
+            if (cam == null) {
+                if (typeof Camera === 'undefined') {
+                    console.error('Camera not defined after wait; skipping camera creation')
+                } else {
+                    cam = new Camera(cameraParameters)
+                }
+            }
 
             allGaussians.gaussians.count = 0;
             allGaussians.gaussians.colors = [];
             allGaussians.gaussians.cov3Ds = [];
             allGaussians.gaussians.opacities = [];
             allGaussians.gaussians.positions = [];
-            worker.postMessage(allGaussians);
             gizmoRenderer.render();
             console.log("clear the previous data and reload the scene");
             load_finish=false;
@@ -497,8 +533,14 @@ function render(width, height, res) {
     // Custom parameters
     gl.uniform1i(gl.getUniformLocation(program, 'show_depth_map'), settings.debugDepth)
 
-    // Draw
-    gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, settings.maxGaussians)
+    // Draw: use the number of gaussians currently uploaded to the GPU buffers
+    // (`gpuGaussianCount`) and clamp by `settings.maxGaussians` so we never
+    // attempt to draw more instances than the attribute buffers contain.
+    const availableOnGPU = (typeof gpuGaussianCount === 'number') ? gpuGaussianCount : 0
+    const instanceCount = Math.max(0, Math.min(settings.maxGaussians, availableOnGPU))
+    if (instanceCount > 0) {
+        gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, instanceCount)
+    }
 
     // Draw gizmo
     gizmoRenderer.render()

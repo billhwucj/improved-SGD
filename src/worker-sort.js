@@ -29,6 +29,14 @@ onmessage = function(event) {
     }
     // Sort gaussians event
     else if (event.data.viewMatrix) {
+        // If the worker has not been initialized with gaussians yet, ignore
+        // sort requests. This prevents sorting an empty dataset and sending
+        // back zero-length buffers.
+        if (!gaussians || !gaussians.totalCount || gaussians.totalCount === 0) {
+            // Reply quickly with an empty sortTime to indicate noop
+            postMessage({ data, sortTime: '0s (noop)' })
+            return
+        }
         const { viewMatrix, maxGaussians, sortingAlgorithm } = event.data
 
         const start = performance.now()

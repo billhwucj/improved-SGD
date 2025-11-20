@@ -331,8 +331,8 @@ def load_scene():
     print("Finished reading data")
 
     # ⭐ NEW: target bandwidth
-    TARGET_BW_MBPS = 9.82
-    # TARGET_BW_MBPS = 29.47
+    # TARGET_BW_MBPS = 9.82
+    TARGET_BW_MBPS = 29.47
     TARGET_BW = TARGET_BW_MBPS * 1024 * 1024  # bytes/sec
 
     def generate_batches(batch_size, gaussian_count):
