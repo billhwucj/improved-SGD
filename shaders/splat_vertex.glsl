@@ -1,6 +1,13 @@
 #version 300 es
 in vec3 a_center;
-in vec3 a_col;
+// ===== MODIFIED FOR SH DEGREE 1 =====
+// Original: in vec3 a_col;
+// Now we receive 4 SH coefficient vectors for view-dependent color
+in vec3 a_sh0;  // DC term (degree 0) - constant color component
+in vec3 a_sh1;  // Degree 1, term 1 (Y_1^-1)
+in vec3 a_sh2;  // Degree 1, term 2 (Y_1^0)
+in vec3 a_sh3;  // Degree 1, term 3 (Y_1^1)
+// ===== END MODIFIED =====
 in float a_opacity;
 in vec3 a_covA;
 in vec3 a_covB;
@@ -16,6 +23,9 @@ uniform mat4 projmatrix;
 uniform mat4 viewmatrix;
 uniform vec3 boxmin;
 uniform vec3 boxmax;
+// ===== ADDED FOR SH DEGREE 1 =====
+uniform vec3 cam_pos;  // Camera position in world space for view-dependent color
+// ===== END ADDED =====
 
 out vec3 col;
 out float depth;
@@ -23,6 +33,28 @@ out float scale_modif;
 out vec4 con_o;
 out vec2 xy;
 out vec2 pixf;
+
+// ===== ADDED FOR SH DEGREE 1 =====
+// Spherical Harmonics constants
+const float SH_C0 = 0.28209479177387814;  // 0.5 * sqrt(1/pi)
+const float SH_C1 = 0.4886025119029199;   // 0.5 * sqrt(3/pi)
+
+// Compute color from SH coefficients and view direction
+vec3 computeSHColor(vec3 dir) {
+    // Degree 0 (constant term)
+    vec3 result = SH_C0 * a_sh0;
+    
+    // Degree 1 (linear terms) - view dependent
+    // Y_1^-1 = sqrt(3/(4*pi)) * y
+    // Y_1^0  = sqrt(3/(4*pi)) * z  
+    // Y_1^1  = sqrt(3/(4*pi)) * x
+    result += SH_C1 * (-dir.y * a_sh1 + dir.z * a_sh2 - dir.x * a_sh3);
+    
+    // Add 0.5 offset and clamp to [0, 1]
+    result += 0.5;
+    return clamp(result, 0.0, 1.0);
+}
+// ===== END ADDED =====
 
 vec3 computeCov2D(vec3 mean, float focal_x, float focal_y, float tan_fovx, float tan_fovy, float[6] cov3D, mat4 viewmatrix) {
     vec4 t = viewmatrix * vec4(mean, 1.0);
@@ -127,7 +159,12 @@ void main() {
     vec2 screen_pos = point_image + my_radius * corner;
 
     // Store some useful helper data for the fragment stage
-    col = a_col;
+    // ===== MODIFIED FOR SH DEGREE 1 =====
+    // Original: col = a_col;
+    // Now compute view-dependent color from SH coefficients
+    vec3 view_dir = normalize(p_orig - cam_pos);  // Direction from camera to gaussian
+    col = computeSHColor(view_dir);
+    // ===== END MODIFIED =====
     con_o = vec4(conic, a_opacity);
     xy = point_image;
     pixf = screen_pos;

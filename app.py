@@ -324,7 +324,11 @@ def load_scene():
     #     return jsonify({"error": "File 'logged_path.json' not found"}), 404
 
     opacities = np.array(scene_data['opacities'])
-    colors = np.array(scene_data['colors'])
+    # ===== MODIFIED FOR SH DEGREE 1 =====
+    # Original: colors = np.array(scene_data['colors'])
+    # Now we use sh_coefficients (12 floats per gaussian) instead of colors (3 floats per gaussian)
+    sh_coefficients = np.array(scene_data['sh_coefficients'])  # 12 floats per gaussian
+    # ===== END MODIFIED =====
     positions = np.array(scene_data['positions'])
     cov3ds = np.array(scene_data['cov3ds'])
     gaussian_count = scene_data['gaussian_count']
@@ -352,7 +356,11 @@ def load_scene():
             end_index = min(start_index + batch_size, gaussian_count)
 
             opacities_batch = opacities[start_index:end_index].tolist()
-            colors_batch = colors[3 * start_index: 3 * end_index].tolist()
+            # ===== MODIFIED FOR SH DEGREE 1 =====
+            # Original: colors_batch = colors[3 * start_index: 3 * end_index].tolist()
+            # Now we send sh_coefficients (12 floats per gaussian) instead of colors (3 floats per gaussian)
+            sh_coefficients_batch = sh_coefficients[12 * start_index: 12 * end_index].tolist()
+            # ===== END MODIFIED =====
             positions_batch = positions[3 * start_index: 3 * end_index]
             cov3ds_batch = cov3ds[6 * start_index: 6 * end_index].tolist()
 
@@ -369,7 +377,10 @@ def load_scene():
             data = {
                 # 'is_path': False,
                 'gaussians': {
-                    'colors': colors_batch,
+                    # ===== MODIFIED FOR SH DEGREE 1 =====
+                    # Original: 'colors': colors_batch,
+                    'sh_coefficients': sh_coefficients_batch,  # 12 floats per gaussian instead of 3
+                    # ===== END MODIFIED =====
                     'cov3Ds': cov3ds_batch,
                     'opacities': opacities_batch,
                     'positions': positions_batch,

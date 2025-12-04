@@ -135,7 +135,16 @@ def process_ply_file(input_file, output_file):
     #gaussian_count = gaussian_count // 50  # Debugging, scale down for experiments
 
     opacities = np.zeros(gaussian_count)
-    colors = np.zeros(3 * gaussian_count)
+    
+    # ===== MODIFIED FOR SH DEGREE 1 =====
+    # Original degree 0: pre-computed colors (3 floats per gaussian)
+    # colors = np.zeros(3 * gaussian_count)
+    
+    # SH Degree 1: store raw SH coefficients (4 harmonics * 3 RGB = 12 floats per gaussian)
+    # Format: [sh0_r, sh0_g, sh0_b, sh1_r, sh1_g, sh1_b, sh2_r, sh2_g, sh2_b, sh3_r, sh3_g, sh3_b]
+    sh_coefficients = np.zeros(12 * gaussian_count)
+    # ===== END MODIFIED =====
+    
     cov3ds = []
     positions = np.zeros(3 * gaussian_count)
     scales = np.zeros(3 * gaussian_count)
@@ -143,7 +152,27 @@ def process_ply_file(input_file, output_file):
     for i in range(gaussian_count):
         offset = header_end + i * num_props * 4
         position = struct.unpack_from('<fff', content, offset)
-        harmonic = struct.unpack_from('<fff', content, offset + 6 * 4)
+        
+        # ===== MODIFIED FOR SH DEGREE 1 =====
+        # PLY layout for SH (48 floats starting at index 6):
+        # - f_dc_0, f_dc_1, f_dc_2 (indices 6,7,8) = DC term for R,G,B
+        # - f_rest_0 to f_rest_44 (indices 9-53) = 45 additional SH coefficients
+        # The f_rest values are stored grouped by channel: 
+        #   f_rest_0..14 (15 values) = R channel higher order
+        #   f_rest_15..29 (15 values) = G channel higher order  
+        #   f_rest_30..44 (15 values) = B channel higher order
+        # For degree 1, we need 3 coefficients per channel from f_rest
+        
+        # Read DC term (degree 0)
+        harmonic_dc = struct.unpack_from('<fff', content, offset + 6 * 4)
+        
+        # Read all 45 f_rest values to extract degree 1 coefficients properly
+        all_rest = struct.unpack_from('<' + 'f' * 45, content, offset + 9 * 4)
+        
+        # Original degree 0 only:
+        # harmonic = struct.unpack_from('<fff', content, offset + 6 * 4)
+        # ===== END MODIFIED =====
+        
         opacity_raw = struct.unpack_from('<f', content, offset + (6 + 48) * 4)[0]
         scale = struct.unpack_from('<fff', content, offset + (6 + 49) * 4)
         rotation = struct.unpack_from('<ffff', content, offset + (6 + 52) * 4)
@@ -156,30 +185,58 @@ def process_ply_file(input_file, output_file):
         cov3d = compute_cov3d(scale, 1, rotation)
         opacity = sigmoid(opacity_raw)
 
-        sh_c0 = 0.28209479177387814
-        color = [0.5 + sh_c0 * harmonic[0], 0.5 + sh_c0 * harmonic[1], 0.5 + sh_c0 * harmonic[2]]
+        # ===== MODIFIED FOR SH DEGREE 1 =====
+        # Original degree 0 color computation:
+        # sh_c0 = 0.28209479177387814
+        # color = [0.5 + sh_c0 * harmonic[0], 0.5 + sh_c0 * harmonic[1], 0.5 + sh_c0 * harmonic[2]]
+        # colors[3 * i: 3 * (i + 1)] = color
+        
+        # Store SH coefficients for degree 1 (4 harmonics per channel)
+        # sh0 (DC term) - indices 0,1,2
+        sh_coefficients[12 * i + 0] = harmonic_dc[0]  # sh0_r (f_dc_0)
+        sh_coefficients[12 * i + 1] = harmonic_dc[1]  # sh0_g (f_dc_1)  
+        sh_coefficients[12 * i + 2] = harmonic_dc[2]  # sh0_b (f_dc_2)
+        
+        # sh1 (first degree 1 term, l=1 m=-1) - from f_rest
+        sh_coefficients[12 * i + 3] = all_rest[0]    # sh1_r (f_rest_0)
+        sh_coefficients[12 * i + 4] = all_rest[15]   # sh1_g (f_rest_15)
+        sh_coefficients[12 * i + 5] = all_rest[30]   # sh1_b (f_rest_30)
+        
+        # sh2 (second degree 1 term, l=1 m=0)
+        sh_coefficients[12 * i + 6] = all_rest[1]    # sh2_r (f_rest_1)
+        sh_coefficients[12 * i + 7] = all_rest[16]   # sh2_g (f_rest_16)
+        sh_coefficients[12 * i + 8] = all_rest[31]   # sh2_b (f_rest_31)
+        
+        # sh3 (third degree 1 term, l=1 m=1)
+        sh_coefficients[12 * i + 9] = all_rest[2]    # sh3_r (f_rest_2)
+        sh_coefficients[12 * i + 10] = all_rest[17]  # sh3_g (f_rest_17)
+        sh_coefficients[12 * i + 11] = all_rest[32]  # sh3_b (f_rest_32)
+        # ===== END MODIFIED =====
+        
         opacities[i] = opacity
-        colors[3 * i: 3 * (i + 1)] = color
         positions[3 * i: 3 * (i + 1)] = position
         scales[3 * i: 3 * (i + 1)] = scale
         cov3ds.extend(cov3d)
 
     print("Finish preprocessing")
 
-    opacities, colors, positions, cov3ds = sort_by_brightness(opacities, colors, positions, cov3ds) # brightness
+    # opacities, colors, positions, cov3ds = sort_by_brightness(opacities, colors, positions, cov3ds) # brightness
 
     # opacities, colors, positions, cov3ds, scales = sort_by_scale(opacities, colors, positions, cov3ds, scales) # size
     
     # opacities, colors, positions, cov3ds = sort_data(opacities, colors, positions, cov3ds) # opacity
 
     # Convert all numpy arrays to native Python types for JSON serialization
+    # ===== MODIFIED FOR SH DEGREE 1 =====
     data = {
         "opacities": opacities.astype(float).tolist(),
-        "colors": colors.astype(float).tolist(),
+        # Original: "colors": colors.astype(float).tolist(),
+        "sh_coefficients": sh_coefficients.astype(float).tolist(),  # 12 floats per gaussian
         "positions": positions.astype(float).tolist(),
         "cov3ds": [float(value) for value in cov3ds],
-        "gaussian_count": int(gaussian_count)  # Ensure integer type
+        "gaussian_count": int(gaussian_count)
     }
+    # ===== END MODIFIED =====
 
     # Save data to JSON
     with open(output_file, 'w') as f:

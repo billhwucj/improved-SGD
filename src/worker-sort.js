@@ -11,6 +11,12 @@ onmessage = function(event) {
         gaussians = event.data.gaussians
         gaussians.totalCount = gaussians.count
 
+        // ===== ADDED FOR SH DEGREE 1: Debug check =====
+        console.log("[Worker] gaussians keys:", Object.keys(gaussians))
+        console.log("[Worker] sh_coefficients exists:", gaussians.sh_coefficients !== undefined)
+        console.log("[Worker] sh_coefficients length:", gaussians.sh_coefficients ? gaussians.sh_coefficients.length : 'undefined')
+        // ===== END ADDED =====
+
         depthIndex = new Uint32Array(gaussians.count)
 
         console.log(`[Worker] Received ${gaussians.count} gaussians`)
@@ -19,7 +25,14 @@ onmessage = function(event) {
         data.opacities = new Float32Array(gaussians.count)
         data.cov3Da = new Float32Array(gaussians.count * 3)
         data.cov3Db = new Float32Array(gaussians.count * 3)
-        data.colors = new Float32Array(gaussians.count * 3)
+        // ===== MODIFIED FOR SH DEGREE 1 =====
+        // Original: data.colors = new Float32Array(gaussians.count * 3)
+        // Now we have 4 SH coefficient arrays (3 floats each per gaussian)
+        data.sh0 = new Float32Array(gaussians.count * 3)  // DC term (degree 0)
+        data.sh1 = new Float32Array(gaussians.count * 3)  // Degree 1, term 1
+        data.sh2 = new Float32Array(gaussians.count * 3)  // Degree 1, term 2
+        data.sh3 = new Float32Array(gaussians.count * 3)  // Degree 1, term 3
+        // ===== END MODIFIED =====
         const sortTime = 0
         if (gaussians.totalCount==0){
             postMessage({
@@ -50,9 +63,26 @@ onmessage = function(event) {
         for (let j = 0; j < gaussians.count; j++) {
             const i = depthIndex[j]
 
-            data.colors[j*3] = gaussians.colors[i*3]
-            data.colors[j*3+1] = gaussians.colors[i*3+1]
-            data.colors[j*3+2] = gaussians.colors[i*3+2]
+            // ===== MODIFIED FOR SH DEGREE 1 =====
+            // Original: data.colors[j*3..j*3+2] = gaussians.colors[i*3..i*3+2]
+            // Now we extract 4 SH coefficients (12 floats total) per gaussian
+            // sh_coefficients layout: [sh0_r, sh0_g, sh0_b, sh1_r, sh1_g, sh1_b, sh2_r, sh2_g, sh2_b, sh3_r, sh3_g, sh3_b]
+            data.sh0[j*3]   = gaussians.sh_coefficients[i*12]      // sh0_r
+            data.sh0[j*3+1] = gaussians.sh_coefficients[i*12+1]    // sh0_g
+            data.sh0[j*3+2] = gaussians.sh_coefficients[i*12+2]    // sh0_b
+            
+            data.sh1[j*3]   = gaussians.sh_coefficients[i*12+3]    // sh1_r
+            data.sh1[j*3+1] = gaussians.sh_coefficients[i*12+4]    // sh1_g
+            data.sh1[j*3+2] = gaussians.sh_coefficients[i*12+5]    // sh1_b
+            
+            data.sh2[j*3]   = gaussians.sh_coefficients[i*12+6]    // sh2_r
+            data.sh2[j*3+1] = gaussians.sh_coefficients[i*12+7]    // sh2_g
+            data.sh2[j*3+2] = gaussians.sh_coefficients[i*12+8]    // sh2_b
+            
+            data.sh3[j*3]   = gaussians.sh_coefficients[i*12+9]    // sh3_r
+            data.sh3[j*3+1] = gaussians.sh_coefficients[i*12+10]   // sh3_g
+            data.sh3[j*3+2] = gaussians.sh_coefficients[i*12+11]   // sh3_b
+            // ===== END MODIFIED =====
 
             data.positions[j*3] = gaussians.positions[i*3]
             data.positions[j*3+1] = gaussians.positions[i*3+1]

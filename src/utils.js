@@ -26,7 +26,14 @@ async function setupWebglContext() {
 
     // Create attribute buffers
     const buffers = {
-        color: setupAttributeBuffer('a_col', 3),
+        // ===== MODIFIED FOR SH DEGREE 1 =====
+        // Original: color: setupAttributeBuffer('a_col', 3),
+        // Now we have 4 SH coefficient buffers instead of one color buffer
+        sh0: setupAttributeBuffer('a_sh0', 3),  // DC term (degree 0)
+        sh1: setupAttributeBuffer('a_sh1', 3),  // Degree 1, term 1
+        sh2: setupAttributeBuffer('a_sh2', 3),  // Degree 1, term 2
+        sh3: setupAttributeBuffer('a_sh3', 3),  // Degree 1, term 3
+        // ===== END MODIFIED =====
         center: setupAttributeBuffer('a_center', 3),
         opacity: setupAttributeBuffer('a_opacity', 1),
         // scale: setupAttributeBuffer('a_scale', 3),

@@ -19,7 +19,10 @@ let gpuGaussianCount = 0 // number of gaussians currently uploaded to GPU buffer
 
 let allGaussians = {
     gaussians: {
-        colors: [],
+        // ===== MODIFIED FOR SH DEGREE 1 =====
+        // Original: colors: [],
+        sh_coefficients: [],  // 12 floats per gaussian instead of 3
+        // ===== END MODIFIED =====
         cov3Ds: [],
         opacities: [],
         positions: [],
@@ -102,9 +105,10 @@ async function main() {
     }
 
     // Setup web worker for multi-threaded sorting
-    worker = new Worker('src/worker-sort.js')
+    // Add cache-busting query string to force reload of updated worker
+    worker = new Worker('src/worker-sort.js?v=' + Date.now())
     // Setup web worker for multi-threaded scene loading
-    load_worker = new Worker('src/load_worker.js')
+    load_worker = new Worker('src/load_worker.js?v=' + Date.now())
 
     // Event that receives sorted gaussian data from the worker
     worker.onmessage = e => {
@@ -124,15 +128,25 @@ async function main() {
             gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW)
         }
 
-        updateBuffer(buffers.color, data.colors)
+        // ===== MODIFIED FOR SH DEGREE 1 =====
+        // Original: updateBuffer(buffers.color, data.colors)
+        // Now we have 4 SH coefficient buffers (sh0, sh1, sh2, sh3) instead of colors
+        updateBuffer(buffers.sh0, data.sh0)
+        updateBuffer(buffers.sh1, data.sh1)
+        updateBuffer(buffers.sh2, data.sh2)
+        updateBuffer(buffers.sh3, data.sh3)
+        // ===== END MODIFIED =====
         updateBuffer(buffers.center, data.positions)
         updateBuffer(buffers.opacity, data.opacities)
         updateBuffer(buffers.covA, data.cov3Da)
         updateBuffer(buffers.covB, data.cov3Db)
 
         // Record how many gaussians the GPU buffers currently contain.
-        // Each color/position entry is 3 floats per gaussian.
-        gpuGaussianCount = (data.colors && data.colors.length) ? (data.colors.length / 3) : 0
+        // ===== MODIFIED FOR SH DEGREE 1 =====
+        // Original: Each color/position entry is 3 floats per gaussian.
+        // Now we use sh0 which is 3 floats per gaussian
+        gpuGaussianCount = (data.sh0 && data.sh0.length) ? (data.sh0.length / 3) : 0
+        // ===== END MODIFIED =====
 
         // Needed for the gizmo renderer
         positionBuffer = buffers.center
@@ -154,7 +168,10 @@ async function main() {
             // accumulated arrays only when the *first* real batch arrives.
             if (pendingReset) {
                 allGaussians.gaussians.count = 0;
-                allGaussians.gaussians.colors = [];
+                // ===== MODIFIED FOR SH DEGREE 1 =====
+                // Original: allGaussians.gaussians.colors = [];
+                allGaussians.gaussians.sh_coefficients = [];
+                // ===== END MODIFIED =====
                 allGaussians.gaussians.cov3Ds = [];
                 allGaussians.gaussians.opacities = [];
                 allGaussians.gaussians.positions = [];
@@ -164,7 +181,10 @@ async function main() {
 
             // append new data to current data
             allGaussians.gaussians.count += responseData.gaussians.count;
-            allGaussians.gaussians.colors = allGaussians.gaussians.colors.concat(responseData.gaussians.colors);
+            // ===== MODIFIED FOR SH DEGREE 1 =====
+            // Original: allGaussians.gaussians.colors = allGaussians.gaussians.colors.concat(responseData.gaussians.colors);
+            allGaussians.gaussians.sh_coefficients = allGaussians.gaussians.sh_coefficients.concat(responseData.gaussians.sh_coefficients);
+            // ===== END MODIFIED =====
             allGaussians.gaussians.cov3Ds = allGaussians.gaussians.cov3Ds.concat(responseData.gaussians.cov3Ds);
             allGaussians.gaussians.opacities = allGaussians.gaussians.opacities.concat(responseData.gaussians.opacities);
             allGaussians.gaussians.positions = allGaussians.gaussians.positions.concat(responseData.gaussians.positions);
@@ -183,6 +203,14 @@ async function main() {
                 document.querySelector('#loading-container').style.opacity = 0
                 cam.disableMovement = false
             }
+
+            // ===== DEBUG FOR SH DEGREE 1 =====
+            console.log("[Main] Before posting to worker:");
+            console.log("[Main] allGaussians.gaussians keys:", Object.keys(allGaussians.gaussians));
+            console.log("[Main] sh_coefficients exists:", allGaussians.gaussians.sh_coefficients !== undefined);
+            console.log("[Main] sh_coefficients length:", allGaussians.gaussians.sh_coefficients ? allGaussians.gaussians.sh_coefficients.length : 'undefined');
+            console.log("[Main] count:", allGaussians.gaussians.count);
+            // ===== END DEBUG =====
 
             // process the received 3DGS data
             worker.postMessage(allGaussians); // send the accumulated 3DGS data to Web Worker
@@ -449,7 +477,10 @@ async function loadScene({scene, file}) {
             }
 
             allGaussians.gaussians.count = 0;
-            allGaussians.gaussians.colors = [];
+            // ===== MODIFIED FOR SH DEGREE 1 =====
+            // Original: allGaussians.gaussians.colors = [];
+            allGaussians.gaussians.sh_coefficients = [];
+            // ===== END MODIFIED =====
             allGaussians.gaussians.cov3Ds = [];
             allGaussians.gaussians.opacities = [];
             allGaussians.gaussians.positions = [];
@@ -529,6 +560,11 @@ function render(width, height, res) {
 
     gl.uniformMatrix4fv(gl.getUniformLocation(program, 'projmatrix'), false, cam.vpm)
     gl.uniformMatrix4fv(gl.getUniformLocation(program, 'viewmatrix'), false, cam.vm)
+
+    // ===== ADDED FOR SH DEGREE 1 =====
+    // Pass camera position for view-dependent color computation
+    gl.uniform3fv(gl.getUniformLocation(program, 'cam_pos'), new Float32Array(cam.pos))
+    // ===== END ADDED =====
 
     // Custom parameters
     gl.uniform1i(gl.getUniformLocation(program, 'show_depth_map'), settings.debugDepth)

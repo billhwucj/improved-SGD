@@ -3,7 +3,10 @@ onmessage = function (event) {
     const { scene, file } = event.data
     let allGaussians = {
         gaussians: {
-            colors: [],
+            // ===== MODIFIED FOR SH DEGREE 1 =====
+            // Original: colors: [],
+            sh_coefficients: [],  // 12 floats per gaussian instead of 3
+            // ===== END MODIFIED =====
             cov3Ds: [],
             opacities: [],
             positions: [],
@@ -17,7 +20,10 @@ onmessage = function (event) {
 
     let partialGaussians = {
         gaussians: {
-            colors: [],
+            // ===== MODIFIED FOR SH DEGREE 1 =====
+            // Original: colors: [],
+            sh_coefficients: [],  // 12 floats per gaussian instead of 3
+            // ===== END MODIFIED =====
             cov3Ds: [],
             opacities: [],
             positions: [],
@@ -56,7 +62,10 @@ onmessage = function (event) {
                 // allGaussians.gaussians.sceneMax = responseData.gaussians.sceneMax
 
                 partialGaussians.gaussians.count = responseData.gaussians.count;
-                partialGaussians.gaussians.colors = responseData.gaussians.colors;
+                // ===== MODIFIED FOR SH DEGREE 1 =====
+                // Original: partialGaussians.gaussians.colors = responseData.gaussians.colors;
+                partialGaussians.gaussians.sh_coefficients = responseData.gaussians.sh_coefficients;
+                // ===== END MODIFIED =====
                 partialGaussians.gaussians.cov3Ds = responseData.gaussians.cov3Ds;
                 partialGaussians.gaussians.opacities = responseData.gaussians.opacities;
                 partialGaussians.gaussians.positions = responseData.gaussians.positions;
